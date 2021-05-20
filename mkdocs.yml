@@ -1,0 +1,10 @@
+site_name: napari-properties-plotter
+site_description: A napari plugin that automatically generates interactive plots based on layer properties.
+site_author: Lorenzo Gaifas
+
+theme: readthedocs
+
+repo_url: https://github.com/brisvag/napari-properties-plotter
+
+pages:
+- Home: index.md
