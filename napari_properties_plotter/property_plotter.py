@@ -232,7 +232,7 @@ class DataSelector(QWidget):
         if activated:
             self.toggle.setText('Stop Selecting')
             sele = pg.LinearRegionItem()
-            sele.sigRegionChanged.connect(self.on_selection_changed)
+            sele.sigRegionChangeFinished.connect(self.on_selection_changed)
             self.sele = sele
             self.plot.addItem(sele)
         else:
