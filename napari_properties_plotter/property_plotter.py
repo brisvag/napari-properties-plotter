@@ -14,7 +14,7 @@ class LayerSelector(QComboBox):
     """
     combobox for selecting a napari layer
     """
-    changed = Signal(napari.layers.Layer)
+    changed = Signal(object)
 
     def __init__(self, layerlist, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -47,8 +47,7 @@ class LayerSelector(QComboBox):
             self.removeItem(index)
 
     def on_layer_selection(self, layer_name):
-        layer = self.layerlist[layer_name]
-        self.changed.emit(layer)
+        self.changed.emit(self.layer)
 
 
 class DataFramePicker(QWidget):
@@ -297,7 +296,9 @@ class PropertyPlotter(QWidget):
 
     def on_selection_changed(self, start=None, end=None):
         layer = self.layer_selector.layer
-        if start is None or end is None:
+        if layer is None:
+            return
+        elif start is None or end is None:
             layer.selected_data.clear()
         else:
             x_prop = self.picker.x
