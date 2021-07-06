@@ -4,134 +4,47 @@ import napari
 import pyqtgraph as pg
 import numpy as np
 import pandas as pd
-from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QComboBox, QLabel, QCheckBox, QPushButton
-from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLabel, QPushButton
+from qtpy.QtCore import Signal
 
-from .utils import distinct_colors, pqtg_symbols
-
-
-class LayerSelector(QComboBox):
-    """
-    combobox for selecting a napari layer
-    """
-    changed = Signal(object)
-
-    def __init__(self, layerlist, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.layerlist = layerlist
-
-        self.addItems(layer.name for layer in self.layerlist
-                      if hasattr(layer, 'properties'))
-
-        self.layerlist.events.inserted.connect(self.on_add_layer)
-        self.layerlist.events.removed.connect(self.on_remove_layer)
-        self.currentTextChanged.connect(self.on_layer_selection)
-
-    @property
-    def layer(self):
-        layer_name = self.currentText()
-        if not layer_name:
-            return None
-        return self.layerlist[layer_name]
-
-    def on_add_layer(self, event):
-        layer = event.value
-        if hasattr(layer, 'properties'):
-            self.addItem(layer.name)
-
-    def on_remove_layer(self, event):
-        layer = event.value
-
-        index = self.findText(layer.name, Qt.MatchExactly)
-        if index != -1:
-            self.removeItem(index)
-
-    def on_layer_selection(self, layer_name):
-        self.changed.emit(self.layer)
+from .components import VariableWidget, LayerSelector
+from .utils import Symbol, YStyle, xstyle_map
 
 
-class DataFramePicker(QWidget):
+class VariablePicker(QWidget):
     """
     Exposes the columns of a dataframe allowing to pick x and y variables
     as well as drawing styles, to be passed to a plotter widget
     """
-    style_map = {
-        float: ('scatter', 'line'),
-        int: ('scatter', 'line'),
-    }
-    activated = Signal(object, object, str, int)
-    deactivated = Signal(str)
+    changed = Signal(int, pd.Series, pd.Series, YStyle, tuple, Symbol)
+    removed = Signal(int)
     reset = Signal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.df = None
-        self.rows = {}
+        self.vars = []
 
-        self.setLayout(QVBoxLayout())
-        # remove annoying padding
-        self.layout().setContentsMargins(0, 0, 0, 0)
-        self.grid = QGridLayout()
-        self.layout().addLayout(self.grid)
-        self.layout().addStretch()
-
-        self.grid.addWidget(QLabel('X axis:'), 0, 0)
+        # set up ui
+        ly = QVBoxLayout()
+        self.setLayout(ly)
+        ly.setContentsMargins(0, 0, 0, 0)  # remove annoying padding
+        # grid used for picked_columns
+        self.vars_layout = QVBoxLayout()
+        ly.addLayout(self.vars_layout)
+        # grid setup
+        self.vars_layout.addWidget(QLabel('X axis:'))
         self.x_picker = QComboBox(self)
-        self.grid.addWidget(self.x_picker, 1, 0)
+        self.vars_layout.addWidget(self.x_picker)
         self.x_picker.currentTextChanged.connect(self._reset)
+        self.vars_layout.addWidget(QLabel('Y axis:'))
+        # button to add new row
+        self.add_var_button = QPushButton('+')
+        ly.addWidget(self.add_var_button)
+        ly.addStretch()
 
-        self.grid.addWidget(QLabel('Y axis:'), 2, 0)
-
-    def set_dataframe(self, dataframe):
-        """
-        set a new dataframe and update contents accordingly
-        """
-        self.df = pd.DataFrame(dataframe)
-        self.df.insert(0, 'index', self.df.index)  # easier if index is a column
-        # clean up (x later, otherwise it triggers a reset and breaks)
-        for prop in list(self.rows):
-            self.remove_row(prop)
-        self.rows.clear()
-        self.x_picker.clear()
-
-        for colname, col in self.df.items():
-            if any(col.dtype == dt for dt in self.style_map):
-                self.x_picker.addItem(colname)
-
-        for col in self.df.columns:
-            self.add_row(col)
-
-    def add_row(self, prop_name):
-        """
-        helper method to add a row to the widget from a dataframe column
-        """
-        available_styles = []
-        for dt, styles in self.style_map.items():
-            if dt == self.df[prop_name].dtype:
-                available_styles.extend(styles)
-        if not available_styles:
-            return
-
-        active = QCheckBox(prop_name, self)
-        style = QComboBox(self)
-        style.addItems(styles)
-
-        idx = len(self.rows)
-        qt_row = idx + 3
-        self.grid.addWidget(active, qt_row, 0)
-        self.grid.addWidget(style, qt_row, 1)
-        self.rows[prop_name] = (active, style, idx)
-
-        active.clicked.connect(lambda: self._changed(prop_name))
-        style.currentTextChanged.connect(lambda: self._changed(prop_name))
-
-    def remove_row(self, prop_name):
-        """
-        remove a widget row and delete its widgets
-        """
-        active, style, idx = self.rows.pop(prop_name)
-        active.deleteLater()
-        style.deleteLater()
+        # events
+        self.add_var_button.clicked.connect(self.add_var)
 
     @property
     def x(self):
@@ -140,66 +53,124 @@ class DataFramePicker(QWidget):
         """
         return self.df[self.x_picker.currentText()]
 
-    def _changed(self, prop_name):
+    @property
+    def xstyle(self):
+        dtype = object
+        for dt, styles in xstyle_map.items():
+            if dt == self.x.dtype:
+                dtype = dt
+        return xstyle_map[dtype]
+
+    def set_dataframe(self, dataframe):
+        """
+        set a new dataframe and update contents accordingly
+        """
+        self.df = pd.DataFrame(dataframe)
+        self.df.insert(0, 'index', self.df.index)  # easier if index is a column
+        # clean up (x later, otherwise it triggers a reset and breaks)
+        for var in list(self.vars):
+            var._on_remove()
+        self.x_picker.clear()
+        self.x_picker.addItems(self.df.columns)
+
+    def add_var(self):
+        """
+        helper method to add a row to the widget from a dataframe column
+        """
+        ps = VariableWidget(parent=self)
+        self.vars_layout.addWidget(ps)
+        self.vars.append(ps)
+
+        ps.changed.connect(self._on_var_changed)
+        ps.removed.connect(self._on_var_removed)
+        # manually trigger change for initialization
+        ps._on_style_change()
+
+    def _on_var_changed(self, var):
         """
         triggered when something regaring the property prop_name changed
         """
-        active, style, idx = self.rows[prop_name]
-        if active.isChecked():
-            self.activated.emit(self.x, self.df[prop_name], style.currentText(), idx)
-        else:
-            self.deactivated.emit(prop_name)
+        idx = self.vars.index(var)
+        self.changed.emit(idx,
+                          self.x,
+                          self.df[var.prop],
+                          var.ystyle,
+                          var.color,
+                          var.symbol)
+
+    def _on_var_removed(self, var):
+        idx = self.vars.index(var)
+        self.vars.remove(var)
+        self.removed.emit(idx)
 
     def _reset(self):
         """
         triggered when the x value changed, requiring redrawing of all the properties
         """
         self.reset.emit()
-        for prop_name in self.rows:
-            self._changed(prop_name)
+        for ps in self.vars:
+            ps._on_style_change()
 
 
 class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     """
     wrapper of GraphicsLayoutWidget with convenience methods for plotting
-    based on signals fired by DataFramePicker
+    based on signals fired by VariablePicker
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.plot = pg.PlotItem()
-        self.plot.addLegend()
-        self.addItem(self.plot)
+        self.plotter = pg.PlotItem()
+        self.plotter.addLegend()
+        self.addItem(self.plotter)
+        self.plots = []
+        self._x_style = None
 
-    def update(self, x, y, style, idx):
-        self.remove(y.name)
-        color, symbol = self.get_line_style(idx)
+    @property
+    def x_style(self):
+        return self._x_style
 
-        if style == 'scatter':
-            self.make_scatter(x, y, color, symbol)
-        elif style == 'line':
-            self.make_line(x, y, color)
+    @x_style.setter
+    def x_style(self, value):
+        self._x_style = value
+        self.reset()
 
-        self.plot.autoRange()
+    def update(self, idx, x, y, ystyle, color, symbol):
+        symbol = symbol.value
+        if ystyle is YStyle.scatter:
+            plot = self.make_scatter(x, y, color, symbol)
+        elif ystyle is YStyle.line:
+            plot = self.make_line(x, y, color)
+        elif ystyle is YStyle.bar:
+            plot = self.make_bars(x, y, color)
+
+        self.replace(idx, plot)
+
+        self.plotter.autoRange()
 
     def make_scatter(self, x, y, color, symbol):
-        self.plot.plot(x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
+        return self.plotter.plot(x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
 
     def make_line(self, x, y, color):
-        self.plot.plot(x, y, name=y.name, pen=color)
+        return self.plotter.plot(x, y, name=y.name, pen=color)
 
-    def get_line_style(self, idx):
-        color = distinct_colors[idx % len(distinct_colors)]
-        symbol = pqtg_symbols[idx % len(pqtg_symbols)]
-        return color, symbol
+    def make_bars(self, x, y, color):
+        pass
 
-    def remove(self, name):
-        for item in self.plot.items:
-            if hasattr(item, 'name') and item.name() == name:
-                self.plot.removeItem(item)
-                self.plot.autoRange()
+    def remove(self, idx):
+        try:
+            plot = self.plots.pop(idx)
+            self.plotter.removeItem(plot)
+            self.plotter.autoRange()
+        except IndexError:
+            # it means we're appending a new plot
+            pass
+
+    def replace(self, idx, plot):
+        self.remove(idx)
+        self.plots.insert(idx, plot)
 
     def reset(self):
-        self.plot.clear()
+        self.plotter.clear()
 
 
 class DataSelector(QWidget):
@@ -267,21 +238,21 @@ class PropertyPlotter(QWidget):
         self.layer_selector = LayerSelector(self.viewer.layers)
         self.left.addWidget(self.layer_selector)
 
-        self.picker = DataFramePicker(self)
+        self.picker = VariablePicker(self)
         self.left.addWidget(self.picker)
 
         # plot
         self.plot = PyQtGraphWrapper(self)
         self.layout().addWidget(self.plot)
 
-        self.data_selector = DataSelector(self.plot.plot, self)
+        self.data_selector = DataSelector(self.plot.plotter, self)
         self.left.addWidget(self.data_selector)
 
         # events
         self.layer_selector.changed.connect(self.on_layer_changed)
 
-        self.picker.activated.connect(self.plot.update)
-        self.picker.deactivated.connect(self.plot.remove)
+        self.picker.changed.connect(self.plot.update)
+        self.picker.removed.connect(self.plot.remove)
         self.picker.reset.connect(self.plot.reset)
 
         self.data_selector.new_selection.connect(self.on_selection_changed)
