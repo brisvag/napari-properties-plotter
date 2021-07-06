@@ -16,6 +16,7 @@ properties = pd.DataFrame({
 
 v = napari.Viewer()
 v.add_points(points, properties=properties)
-v.window.add_dock_widget(PropertyPlotter(v), area='bottom')
+plotter = PropertyPlotter(v)
+v.window.add_dock_widget(plotter, area='bottom')
 
 napari.run()

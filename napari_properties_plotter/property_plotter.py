@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import napari
 import pyqtgraph as pg
 import numpy as np
@@ -8,7 +6,7 @@ from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLabel,
 from qtpy.QtCore import Signal
 
 from .components import VariableWidget, LayerSelector
-from .utils import Symbol, YStyle, xstyle_map
+from .utils import Symbol, YStyle, XStyle, get_xstyle
 
 
 class VariablePicker(QWidget):
@@ -16,9 +14,9 @@ class VariablePicker(QWidget):
     Exposes the columns of a dataframe allowing to pick x and y variables
     as well as drawing styles, to be passed to a plotter widget
     """
-    changed = Signal(int, pd.Series, pd.Series, YStyle, tuple, Symbol)
+    changed = Signal(int, pd.Series, YStyle, tuple, Symbol)
     removed = Signal(int)
-    reset = Signal()
+    x_changed = Signal(pd.Series)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -36,7 +34,6 @@ class VariablePicker(QWidget):
         self.vars_layout.addWidget(QLabel('X axis:'))
         self.x_picker = QComboBox(self)
         self.vars_layout.addWidget(self.x_picker)
-        self.x_picker.currentTextChanged.connect(self._reset)
         self.vars_layout.addWidget(QLabel('Y axis:'))
         # button to add new row
         self.add_var_button = QPushButton('+')
@@ -44,6 +41,7 @@ class VariablePicker(QWidget):
         ly.addStretch()
 
         # events
+        self.x_picker.currentTextChanged.connect(self._on_x_changed)
         self.add_var_button.clicked.connect(self.add_var)
 
     @property
@@ -55,11 +53,7 @@ class VariablePicker(QWidget):
 
     @property
     def xstyle(self):
-        dtype = object
-        for dt, styles in xstyle_map.items():
-            if dt == self.x.dtype:
-                dtype = dt
-        return xstyle_map[dtype]
+        return get_xstyle(self.x)
 
     def set_dataframe(self, dataframe):
         """
@@ -92,7 +86,6 @@ class VariablePicker(QWidget):
         """
         idx = self.vars.index(var)
         self.changed.emit(idx,
-                          self.x,
                           self.df[var.prop],
                           var.ystyle,
                           var.color,
@@ -103,13 +96,23 @@ class VariablePicker(QWidget):
         self.vars.remove(var)
         self.removed.emit(idx)
 
-    def _reset(self):
+    def _continuous_mode(self, enabled):
+        self.add_var_button.setVisible(enabled)
+
+    def _on_x_changed(self):
         """
         triggered when the x value changed, requiring redrawing of all the properties
         """
-        self.reset.emit()
-        for ps in self.vars:
-            ps._on_style_change()
+        if self.xstyle is XStyle.continuous:
+            for ps in self.vars:
+                ps._on_style_change()
+            self._continuous_mode(True)
+        elif self.xstyle is XStyle.categorical:
+            for var in list(self.vars):
+                # remove all the variables and grey out the add button
+                var._on_remove()
+            self._continuous_mode(False)
+        self.x_changed.emit(self.x)
 
 
 class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
@@ -123,37 +126,55 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.plotter.addLegend()
         self.addItem(self.plotter)
         self.plots = []
-        self._x_style = None
+        self._x = None
 
     @property
-    def x_style(self):
-        return self._x_style
+    def x(self):
+        return self._x
 
-    @x_style.setter
-    def x_style(self, value):
-        self._x_style = value
-        self.reset()
+    def set_x(self, value):
+        previous_style = get_xstyle(self.x)
+        if previous_style is XStyle.categorical:
+            self.reset()
 
-    def update(self, idx, x, y, ystyle, color, symbol):
+        self._x = value
+        self.plotter.setLabel(axis='bottom', text=value.name)
+
+        if get_xstyle(value) is XStyle.categorical:
+            self.plot_categorical()
+        else:
+            ax = self.plotter.getAxis('bottom')
+            ax.setTicks(None)
+
+    def plot_categorical(self):
+        unique, counts = np.unique(self.x, return_counts=True)
+        x = np.arange(len(unique))
+        ax = self.plotter.getAxis('bottom')
+        ax.setTicks([enumerate(unique)])
+        plot = pg.BarGraphItem(x=x, height=counts, width=0.5)
+        self.plotter.addItem(plot)
+        self.plotter.autoRange()
+
+    def update(self, idx, y, ystyle, color, symbol):
         symbol = symbol.value
         if ystyle is YStyle.scatter:
-            plot = self.make_scatter(x, y, color, symbol)
+            plot = self.make_scatter(y, color, symbol)
         elif ystyle is YStyle.line:
-            plot = self.make_line(x, y, color)
+            plot = self.make_line(y, color)
         elif ystyle is YStyle.bar:
-            plot = self.make_bars(x, y, color)
+            plot = self.make_bars(y, color)
 
         self.replace(idx, plot)
 
         self.plotter.autoRange()
 
-    def make_scatter(self, x, y, color, symbol):
-        return self.plotter.plot(x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
+    def make_scatter(self, y, color, symbol):
+        return self.plotter.plot(self.x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
 
-    def make_line(self, x, y, color):
-        return self.plotter.plot(x, y, name=y.name, pen=color)
+    def make_line(self, y, color):
+        return self.plotter.plot(self.x, y, name=y.name, pen=color)
 
-    def make_bars(self, x, y, color):
+    def make_bars(self, y, color):
         pass
 
     def remove(self, idx):
@@ -168,6 +189,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     def replace(self, idx, plot):
         self.remove(idx)
         self.plots.insert(idx, plot)
+        self.plotter.autoRange()
 
     def reset(self):
         self.plotter.clear()
@@ -253,7 +275,7 @@ class PropertyPlotter(QWidget):
 
         self.picker.changed.connect(self.plot.update)
         self.picker.removed.connect(self.plot.remove)
-        self.picker.reset.connect(self.plot.reset)
+        self.picker.x_changed.connect(self.plot.set_x)
 
         self.data_selector.new_selection.connect(self.on_selection_changed)
 

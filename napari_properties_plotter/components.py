@@ -115,7 +115,7 @@ class VariableWidget(QWidget):
         if not styles:
             self.style_box.setDisabled(True)
 
-    def _on_style_change(self, style=None):
+    def _on_style_change(self):
         self.changed.emit(self)
 
     def _on_remove(self):

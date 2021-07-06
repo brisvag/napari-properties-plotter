@@ -56,3 +56,13 @@ xstyle_map = {
     int: XStyle.continuous,
     object: XStyle.categorical,
 }
+
+
+def get_xstyle(series):
+    dtype = object
+    if series is None:
+        return dtype
+    for dt, styles in xstyle_map.items():
+        if dt == series.dtype:
+            dtype = dt
+    return xstyle_map[dtype]
