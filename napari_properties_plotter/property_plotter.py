@@ -49,7 +49,7 @@ class VariablePicker(QWidget):
         """
         return current x data
         """
-        return self.df[self.x_picker.currentText()]
+        return self.df.get(self.x_picker.currentText(), pd.Series())
 
     @property
     def xstyle(self):
