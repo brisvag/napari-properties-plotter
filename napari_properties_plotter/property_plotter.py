@@ -4,7 +4,7 @@ import napari
 import pyqtgraph as pg
 import numpy as np
 import pandas as pd
-from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLabel, QPushButton
+from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLabel, QPushButton, QSpinBox
 from qtpy.QtCore import Signal
 
 from .components import VariableWidget, LayerSelector
@@ -37,7 +37,8 @@ class VariablePicker(QWidget):
         self.vars_layout.addWidget(QLabel('X axis:'))
         self.x_picker = QComboBox(self)
         self.vars_layout.addWidget(self.x_picker)
-        self.vars_layout.addWidget(QLabel('Y axis:'))
+        self.y_label = QLabel('Y axis:')
+        self.vars_layout.addWidget(self.y_label)
         # button to add new row
         self.add_var_button = QPushButton('+')
         ly.addWidget(self.add_var_button)
@@ -118,6 +119,7 @@ class VariablePicker(QWidget):
 
     def _continuous_mode(self, enabled):
         self.add_var_button.setVisible(enabled)
+        self.y_label.setVisible(enabled)
 
     def _on_x_changed(self):
         """
@@ -142,8 +144,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     wrapper of GraphicsLayoutWidget with convenience methods for plotting
     based on signals fired by VariablePicker
     """
-    categorical = Signal()
-    continuous = Signal()
+    selectable = Signal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -152,10 +153,16 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.addItem(self.plotter)
         self.plots = []
         self._x = None
+        self._single_plot = None
+        self._bins = 10
 
     @property
     def x(self):
         return self._x
+
+    @property
+    def xstyle(self):
+        return get_xstyle(self.x)
 
     def set_x(self, value):
         previous_style = get_xstyle(self.x)
@@ -167,11 +174,11 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
 
         if get_xstyle(value) is XStyle.categorical:
             self.plot_categorical()
-            self.categorical.emit()
         else:
             ax = self.plotter.getAxis('bottom')
             ax.setTicks(None)
-            self.continuous.emit()
+            if not self.plots:
+                self.plot_binned()
 
     def plot_categorical(self):
         unique, counts = np.unique(self.x, return_counts=True)
@@ -179,10 +186,21 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         ax = self.plotter.getAxis('bottom')
         ax.setTicks([enumerate(unique)])
         plot = pg.BarGraphItem(x=x, height=counts, width=0.5)
-        self.plotter.addItem(plot)
-        self.plotter.autoRange()
+        self.set_single(plot)
+        self.selectable.emit(False)
+
+    def plot_binned(self):
+        y, edges = np.histogram(self.x, bins=self._bins)
+        left_edges = edges[:-1]
+        right_edges = edges[1:]
+        plot = pg.BarGraphItem(x0=left_edges, x1=right_edges, height=y)
+        self.set_single(plot)
+        # ax = self.plotter.getAxis('bottom')
+        # ax.setTicks()
+        self.selectable.emit(False)
 
     def update(self, idx, y, ystyle, color, symbol):
+        self.remove_single()
         symbol = symbol.value
         if ystyle is YStyle.scatter:
             plot = self.make_scatter(y, color, symbol)
@@ -194,6 +212,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.replace(idx, plot)
 
         self.plotter.autoRange()
+        self.selectable.emit(True)
 
     def make_scatter(self, y, color, symbol):
         return self.plotter.plot(self.x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
@@ -204,17 +223,40 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     def make_bars(self, y, color):
         pass
 
-    def remove(self, idx):
+    def _remove(self, idx):
         try:
             plot = self.plots.pop(idx)
             self.plotter.removeItem(plot)
-            self.plotter.autoRange()
         except IndexError:
             # it means we're appending a new plot
             pass
 
+    def remove(self, idx):
+        self._remove(idx)
+        if not self.plots:
+            self.plot_binned()
+        else:
+            self.plotter.autoRange()
+
+    def set_single(self, plot):
+        self.reset()
+        self._single_plot = plot
+        self.plotter.addItem(plot)
+        self.plotter.autoRange()
+
+    def set_binning(self, bins):
+        self._bins = bins
+        print('asd')
+        if self._single_plot is not None and self.xstyle is XStyle.continuous:
+            self.plot_binned()
+
+    def remove_single(self):
+        if self._single_plot is not None:
+            self.plotter.removeItem(self._single_plot)
+            self._single_plot = None
+
     def replace(self, idx, plot):
-        self.remove(idx)
+        self._remove(idx)
         self.plots.insert(idx, plot)
         self.plotter.autoRange()
 
@@ -272,9 +314,23 @@ class DataSelector(QWidget):
             self.new_selection.emit(left, right)
 
     def toggle_enabled(self, enabled):
-        self.toggle.setEnabled(enabled)
+        self.toggle.setVisible(enabled)
         if not enabled:
             self.toggle_selection(False)
+
+
+class BinningSpinbox(QWidget):
+    def __init__(self, plot, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.plot = plot
+        ly = QHBoxLayout()
+        self.setLayout(ly)
+        self.spinbox = QSpinBox()
+        ly.addWidget(self.spinbox)
+        self.spinbox.setRange(1, 1000)
+        self.spinbox.setValue(10)
+
+        self.spinbox.valueChanged.connect(self.plot.set_binning)
 
 
 class PropertyPlotter(QWidget):
@@ -304,11 +360,14 @@ class PropertyPlotter(QWidget):
         self.data_selector = DataSelector(self.plot.plotter, self)
         self.left.addWidget(self.data_selector)
 
+        self.binning_spinbox = BinningSpinbox(self.plot, self)
+        self.left.addWidget(self.binning_spinbox)
+
         # events
         self.layer_selector.changed.connect(self.on_layer_changed)
 
-        self.plot.categorical.connect(lambda: self.data_selector.toggle_enabled(False))
-        self.plot.continuous.connect(lambda: self.data_selector.toggle_enabled(True))
+        self.plot.selectable.connect(self.data_selector.toggle_enabled)
+        self.plot.selectable.connect(lambda x: self.binning_spinbox.setVisible(not x))
 
         self.picker.changed.connect(self.plot.update)
         self.picker.removed.connect(self.plot.remove)
