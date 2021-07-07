@@ -14,12 +14,12 @@ class LayerSelector(QComboBox):
         super().__init__(*args, **kwargs)
         self.layerlist = layerlist
 
-        self.addItems(layer.name for layer in self.layerlist
-                      if hasattr(layer, 'properties'))
-
         self.layerlist.events.inserted.connect(self.on_add_layer)
         self.layerlist.events.removed.connect(self.on_remove_layer)
         self.currentTextChanged.connect(self.on_layer_selection)
+
+        self.addItems(layer.name for layer in self.layerlist
+                      if hasattr(layer, 'properties'))
 
     @property
     def layer(self):
@@ -41,6 +41,12 @@ class LayerSelector(QComboBox):
             self.removeItem(index)
 
     def on_layer_selection(self, layer_name):
+        if self.layer is not None:
+            self.layer.events.data.connect(self.on_data_change)
+            # TODO: disconnect previous layers?
+        self.changed.emit(self.layer)
+
+    def on_data_change(self, event):
         self.changed.emit(self.layer)
 
 

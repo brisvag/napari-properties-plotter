@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import napari
 import pyqtgraph as pg
 import numpy as np
@@ -22,6 +24,7 @@ class VariablePicker(QWidget):
         super().__init__(*args, **kwargs)
         self.df = None
         self.vars = []
+        self._block_x_changed = False
 
         # set up ui
         ly = QVBoxLayout()
@@ -55,30 +58,47 @@ class VariablePicker(QWidget):
     def xstyle(self):
         return get_xstyle(self.x)
 
+    @contextmanager
+    def block_x_changed(self):
+        self._block_x_changed = True
+        yield
+        self._block_x_changed = False
+
     def set_dataframe(self, dataframe):
         """
         set a new dataframe and update contents accordingly
         """
         self.df = pd.DataFrame(dataframe)
         self.df.insert(0, 'index', self.df.index)  # easier if index is a column
-        # clean up (x later, otherwise it triggers a reset and breaks)
+
+        # clean up what can't stay
         for var in list(self.vars):
-            var._on_remove()
-        self.x_picker.clear()
-        self.x_picker.addItems(self.df.columns)
+            if var.prop not in self.df:
+                var._on_remove()
+
+        with self.block_x_changed():
+            old_x_items = [self.x_picker.itemText(i) for i in range(self.x_picker.count())]
+            current_x = self.x_picker.currentText()
+            self.x_picker.clear()
+            self.x_picker.addItems(self.df.columns)
+            if current_x in old_x_items:
+                self.x_picker.setCurrentText(current_x)
+
+        for var in self.vars:
+            var._on_style_change()
 
     def add_var(self):
         """
         helper method to add a row to the widget from a dataframe column
         """
-        ps = VariableWidget(parent=self)
-        self.vars_layout.addWidget(ps)
-        self.vars.append(ps)
+        var = VariableWidget(parent=self)
+        self.vars_layout.addWidget(var)
+        self.vars.append(var)
 
-        ps.changed.connect(self._on_var_changed)
-        ps.removed.connect(self._on_var_removed)
+        var.changed.connect(self._on_var_changed)
+        var.removed.connect(self._on_var_removed)
         # manually trigger change for initialization
-        ps._on_style_change()
+        var._on_style_change()
 
     def _on_var_changed(self, var):
         """
@@ -120,6 +140,9 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     wrapper of GraphicsLayoutWidget with convenience methods for plotting
     based on signals fired by VariablePicker
     """
+    categorical = Signal()
+    continuous = Signal()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.plotter = pg.PlotItem()
@@ -142,9 +165,11 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
 
         if get_xstyle(value) is XStyle.categorical:
             self.plot_categorical()
+            self.categorical.emit()
         else:
             ax = self.plotter.getAxis('bottom')
             ax.setTicks(None)
+            self.continuous.emit()
 
     def plot_categorical(self):
         unique, counts = np.unique(self.x, return_counts=True)
@@ -242,6 +267,11 @@ class DataSelector(QWidget):
             right = region_changed._bounds.right()
             self.new_selection.emit(left, right)
 
+    def toggle_enabled(self, enabled):
+        self.toggle.setEnabled(enabled)
+        if not enabled:
+            self.toggle_selection(False)
+
 
 class PropertyPlotter(QWidget):
     """
@@ -273,6 +303,9 @@ class PropertyPlotter(QWidget):
         # events
         self.layer_selector.changed.connect(self.on_layer_changed)
 
+        self.plot.categorical.connect(lambda: self.data_selector.toggle_enabled(False))
+        self.plot.continuous.connect(lambda: self.data_selector.toggle_enabled(True))
+
         self.picker.changed.connect(self.plot.update)
         self.picker.removed.connect(self.plot.remove)
         self.picker.x_changed.connect(self.plot.set_x)
@@ -283,7 +316,6 @@ class PropertyPlotter(QWidget):
         self.on_layer_changed(self.layer_selector.layer)
 
     def on_layer_changed(self, layer):
-        self.plot.reset()
         properties = getattr(layer, 'properties', {})
         self.picker.set_dataframe(properties)
 
