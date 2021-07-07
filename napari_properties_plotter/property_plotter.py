@@ -246,7 +246,6 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
 
     def set_binning(self, bins):
         self._bins = bins
-        print('asd')
         if self._single_plot is not None and self.xstyle is XStyle.continuous:
             self.plot_binned()
 
@@ -325,6 +324,10 @@ class BinningSpinbox(QWidget):
         self.plot = plot
         ly = QHBoxLayout()
         self.setLayout(ly)
+
+        self.label = QLabel('Binning:')
+        ly.addWidget(self.label)
+
         self.spinbox = QSpinBox()
         ly.addWidget(self.spinbox)
         self.spinbox.setRange(1, 1000)
