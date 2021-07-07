@@ -190,6 +190,10 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.selectable.emit(False)
 
     def plot_binned(self):
+        if self.x.dtype == float and np.any(np.isnan(self.x)):
+            self.reset()
+            self.selectable.emit(False)
+            return
         y, edges = np.histogram(self.x, bins=self._bins)
         left_edges = edges[:-1]
         right_edges = edges[1:]

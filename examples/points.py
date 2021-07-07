@@ -12,6 +12,7 @@ properties1 = pd.DataFrame({
     'a': np.random.rand(100) * 20,
     'b': np.sin(np.linspace(0, 10, 100)) * 10,
     'c': np.random.choice(['red', 'green', 'blue'], 100),
+    'd': np.nan,
 })
 
 points2 = np.random.rand(50, 2) * 200
@@ -19,6 +20,7 @@ properties2 = pd.DataFrame({
     'a': np.random.rand(50) * 20,
     'b': np.cos(np.linspace(0, 10, 50)) * 10,
     'c': np.random.choice(['red', 'green', 'blue'], 50),
+    'd': np.nan,
 })
 
 v = napari.Viewer()
