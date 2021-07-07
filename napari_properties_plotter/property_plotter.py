@@ -71,11 +71,6 @@ class VariablePicker(QWidget):
         self.df = pd.DataFrame(dataframe)
         self.df.insert(0, 'index', self.df.index)  # easier if index is a column
 
-        # clean up what can't stay
-        for var in list(self.vars):
-            if var.prop not in self.df:
-                var._on_remove()
-
         with self.block_x_changed():
             old_x_items = [self.x_picker.itemText(i) for i in range(self.x_picker.count())]
             current_x = self.x_picker.currentText()
@@ -83,9 +78,14 @@ class VariablePicker(QWidget):
             self.x_picker.addItems(self.df.columns)
             if current_x in old_x_items:
                 self.x_picker.setCurrentText(current_x)
+        self.x_changed.emit(self.x)
 
-        for var in self.vars:
-            var._on_style_change()
+        # clean up what can't stay
+        for var in list(self.vars):
+            if var.prop not in self.df:
+                var._on_remove()
+            else:
+                var._on_style_change()
 
     def add_var(self):
         """
@@ -123,6 +123,8 @@ class VariablePicker(QWidget):
         """
         triggered when the x value changed, requiring redrawing of all the properties
         """
+        if self._block_x_changed:
+            return
         if self.xstyle is XStyle.continuous:
             for ps in self.vars:
                 ps._on_style_change()
@@ -255,8 +257,10 @@ class DataSelector(QWidget):
             self.plot.addItem(sele)
         else:
             self.toggle.setText('Select Area')
-            self.plot.removeItem(self.sele)
-            self.sele = None
+            if self.sele is not None:
+                self.sele.sigRegionChangeFinished.disconnect()
+                self.plot.removeItem(self.sele)
+                self.sele = None
             self.on_selection_changed(None)
 
     def on_selection_changed(self, region_changed):
@@ -311,11 +315,14 @@ class PropertyPlotter(QWidget):
         self.picker.x_changed.connect(self.plot.set_x)
 
         self.data_selector.new_selection.connect(self.on_selection_changed)
+        self.data_selector.abort_selection.connect(self.on_selection_changed)
 
         # trigger first time
         self.on_layer_changed(self.layer_selector.layer)
 
     def on_layer_changed(self, layer):
+        # disable selection
+        self.data_selector.toggle.setChecked(False)
         properties = getattr(layer, 'properties', {})
         self.picker.set_dataframe(properties)
 
