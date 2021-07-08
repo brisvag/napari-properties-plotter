@@ -145,6 +145,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     based on signals fired by VariablePicker
     """
     continuous = Signal(bool)
+    binned = Signal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -186,8 +187,8 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         plot = pg.BarGraphItem(x=x, height=counts, width=0.5)
         self.set_single(plot)
         self.continuous.emit(False)
+        self.binned.emit(False)
         ax = self.plotter.getAxis('bottom')
-        print([list(enumerate(unique))])
         ax.setTicks([enumerate(unique)])
 
     def plot_binned(self):
@@ -203,6 +204,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         # ax = self.plotter.getAxis('bottom')
         # ax.setTicks()
         self.continuous.emit(True)
+        self.binned.emit(True)
 
     def update(self, idx, y, ystyle, color, symbol):
         self.remove_single()
@@ -218,6 +220,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
 
         self.plotter.autoRange()
         self.continuous.emit(True)
+        self.binned.emit(False)
 
     def make_scatter(self, y, color, symbol):
         return self.plotter.plot(self.x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
@@ -393,7 +396,7 @@ class PropertyPlotter(QWidget):
         self.layer_selector.changed.connect(self.on_layer_changed)
 
         self.plot.continuous.connect(self.data_selector.toggle_enabled)
-        self.plot.continuous.connect(self.binning_spinbox.setVisible)
+        self.plot.binned.connect(self.binning_spinbox.setVisible)
 
         self.picker.changed.connect(self.plot.update)
         self.picker.removed.connect(self.plot.remove)
