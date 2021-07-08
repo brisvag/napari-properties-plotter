@@ -4,7 +4,7 @@ import napari
 import pyqtgraph as pg
 import numpy as np
 import pandas as pd
-from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QComboBox, QLabel, QPushButton, QSpinBox
+from qtpy.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QComboBox, QLabel, QPushButton, QSpinBox, QCheckBox
 from qtpy.QtCore import Signal
 
 from .components import VariableWidget, LayerSelector
@@ -145,6 +145,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     based on signals fired by VariablePicker
     """
     selectable = Signal(bool)
+    categorical = Signal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -188,6 +189,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         plot = pg.BarGraphItem(x=x, height=counts, width=0.5)
         self.set_single(plot)
         self.selectable.emit(False)
+        self.categorical.emit(True)
 
     def plot_binned(self):
         if self.x.dtype == float and np.any(np.isnan(self.x)):
@@ -326,18 +328,36 @@ class BinningSpinbox(QWidget):
     def __init__(self, plot, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.plot = plot
-        ly = QHBoxLayout()
+        ly = QGridLayout()
+        # remove annoying padding
+        ly.setContentsMargins(0, 0, 0, 0)
         self.setLayout(ly)
 
         self.label = QLabel('Binning:')
-        ly.addWidget(self.label)
+        ly.addWidget(self.label, 0, 0)
+
+        self.auto = QCheckBox('auto', checked=False)
+        ly.addWidget(self.auto, 0, 1)
 
         self.spinbox = QSpinBox()
-        ly.addWidget(self.spinbox)
-        self.spinbox.setRange(1, 1000)
+        ly.addWidget(self.spinbox, 1, 0, 1, 2)
+        self.spinbox.setRange(1, 100000)
         self.spinbox.setValue(10)
 
-        self.spinbox.valueChanged.connect(self.plot.set_binning)
+        self.spinbox.valueChanged.connect(self._on_binning_change)
+        self.auto.clicked.connect(self._on_auto_change)
+
+        self.auto.click()
+
+    def _on_binning_change(self):
+        self.plot.set_binning(self.spinbox.value())
+
+    def _on_auto_change(self, checked):
+        self.spinbox.setVisible(not checked)
+        if checked:
+            self.plot.set_binning('auto')
+        else:
+            self._on_binning_change()
 
 
 class PropertyPlotter(QWidget):
