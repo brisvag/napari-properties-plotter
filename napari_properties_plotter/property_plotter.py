@@ -127,6 +127,7 @@ class VariablePicker(QWidget):
         """
         if self._block_x_changed:
             return
+        self.x_changed.emit(self.x)
         if self.xstyle is XStyle.continuous:
             for ps in self.vars:
                 ps._on_style_change()
@@ -136,7 +137,6 @@ class VariablePicker(QWidget):
                 # remove all the variables and grey out the add button
                 var._on_remove()
             self._continuous_mode(False)
-        self.x_changed.emit(self.x)
 
 
 class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
@@ -268,6 +268,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.plotter.autoRange()
 
     def reset(self):
+        self.remove_single()
         self.plotter.clear()
 
 
