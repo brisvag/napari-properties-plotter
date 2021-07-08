@@ -144,8 +144,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     wrapper of GraphicsLayoutWidget with convenience methods for plotting
     based on signals fired by VariablePicker
     """
-    selectable = Signal(bool)
-    categorical = Signal(bool)
+    continuous = Signal(bool)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -184,17 +183,17 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
     def plot_categorical(self):
         unique, counts = np.unique(self.x, return_counts=True)
         x = np.arange(len(unique))
-        ax = self.plotter.getAxis('bottom')
-        ax.setTicks([enumerate(unique)])
         plot = pg.BarGraphItem(x=x, height=counts, width=0.5)
         self.set_single(plot)
-        self.selectable.emit(False)
-        self.categorical.emit(True)
+        self.continuous.emit(False)
+        ax = self.plotter.getAxis('bottom')
+        print([list(enumerate(unique))])
+        ax.setTicks([enumerate(unique)])
 
     def plot_binned(self):
         if self.x.dtype == float and np.any(np.isnan(self.x)):
             self.reset()
-            self.selectable.emit(False)
+            self.continuous.emit(False)
             return
         y, edges = np.histogram(self.x, bins=self._bins)
         left_edges = edges[:-1]
@@ -203,7 +202,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.set_single(plot)
         # ax = self.plotter.getAxis('bottom')
         # ax.setTicks()
-        self.selectable.emit(False)
+        self.continuous.emit(True)
 
     def update(self, idx, y, ystyle, color, symbol):
         self.remove_single()
@@ -218,7 +217,7 @@ class PyQtGraphWrapper(pg.GraphicsLayoutWidget):
         self.replace(idx, plot)
 
         self.plotter.autoRange()
-        self.selectable.emit(True)
+        self.continuous.emit(True)
 
     def make_scatter(self, y, color, symbol):
         return self.plotter.plot(self.x, y, name=y.name, symbol=symbol, symbolBrush=color, pen=None)
@@ -393,8 +392,8 @@ class PropertyPlotter(QWidget):
         # events
         self.layer_selector.changed.connect(self.on_layer_changed)
 
-        self.plot.selectable.connect(self.data_selector.toggle_enabled)
-        self.plot.selectable.connect(lambda x: self.binning_spinbox.setVisible(not x))
+        self.plot.continuous.connect(self.data_selector.toggle_enabled)
+        self.plot.continuous.connect(self.binning_spinbox.setVisible)
 
         self.picker.changed.connect(self.plot.update)
         self.picker.removed.connect(self.plot.remove)
