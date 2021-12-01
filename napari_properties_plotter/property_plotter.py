@@ -317,8 +317,7 @@ class DataSelector(QWidget):
         if region_changed is None:
             self.abort_selection.emit()
         else:
-            left = region_changed._bounds.left()
-            right = region_changed._bounds.right()
+            left, right = region_changed.getRegion()
             self.new_selection.emit(left, right)
 
     def toggle_enabled(self, enabled):
@@ -412,12 +411,16 @@ class PropertyPlotter(QWidget):
     def on_layer_changed(self, layer):
         # disable selection
         self.data_selector.toggle.setChecked(False)
+        if isinstance(layer, napari.layers.Points):
+            self.data_selector.setVisible(True)
+        else:
+            self.data_selector.setVisible(False)
         properties = getattr(layer, 'properties', {})
         self.picker.set_dataframe(properties)
 
     def on_selection_changed(self, start=None, end=None):
         layer = self.layer_selector.layer
-        if layer is None:
+        if not isinstance(layer, napari.layers.Points):
             return
         elif start is None or end is None:
             layer.selected_data.clear()
