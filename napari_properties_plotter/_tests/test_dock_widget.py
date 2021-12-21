@@ -1,13 +1,14 @@
-import napari_properties_plotter
+from napari_properties_plotter._dock_widget import PropertyPlotter
 
 
-def test_plotter_widget(make_napari_viewer, napari_plugin_manager):
-    napari_plugin_manager.register(napari_properties_plotter, 'napari-properties-plotter')
+def test_plotter_widget(make_napari_viewer):
     viewer = make_napari_viewer()
+    num_dw = len(viewer.window._dock_widgets)
     widget = viewer.window.add_plugin_dock_widget(
         plugin_name='napari-properties-plotter', widget_name='Property Plotter'
-    )[1]
-    assert isinstance(widget, napari_properties_plotter.PropertyPlotter)
+    )
+    assert isinstance(widget, PropertyPlotter)
+    assert len(viewer.window._dock_widgets == num_dw + 1)
     assert widget.layer_selector.layer is None
     pl = viewer.add_points()
     assert widget.layer_selector.layer is pl
