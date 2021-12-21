@@ -1,0 +1,10 @@
+contributions:
+  commands:
+  - id: napari-properties-plotter.PropertyPlotter
+    python_name: napari_properties_plotter._dock_widget:PropertyPlotter
+    title: Create Property Plotter
+  widgets:
+  - command: napari-properties-plotter.PropertyPlotter
+    display_name: Property Plotter
+engine: 0.1.0
+name: napari-properties-plotter
