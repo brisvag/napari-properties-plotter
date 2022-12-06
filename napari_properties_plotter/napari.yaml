@@ -6,5 +6,4 @@ contributions:
   widgets:
   - command: napari-properties-plotter.PropertyPlotter
     display_name: Property Plotter
-engine: 0.1.0
 name: napari-properties-plotter
